@@ -47,3 +47,13 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# ArcGIS Pro project files
+WestKimberley_ArcGIS/*
+WestKimberley_ArcGIS
+
+# input and output data files
+
+input/Spatial_data/
+output/
+
