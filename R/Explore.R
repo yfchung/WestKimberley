@@ -1,0 +1,7 @@
+library(terra)
+library(sf)
+library(tidyverse)
+library(tidyterra)
+library(ggspatial)
+library(ggpubr)
+library(shadowtext)
