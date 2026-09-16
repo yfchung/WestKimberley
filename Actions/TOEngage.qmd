@@ -1,0 +1,353 @@
+---
+title: "Traditional Owner engagement and knowledge sharing"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show code"
+    fig-width: 8
+    fig-height: 4
+    fig-crop: true
+    fig-caption: true
+
+  pdf:
+    pdf-engine: xelatex
+    geometry:
+      - margin=2cm
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+          commandchars=\\\{\},
+          breaklines=true,
+          breakanywhere=true
+        }
+
+  docx:
+    reference-doc: custom-reference.docx
+
+execute:
+  echo: true
+  warning: false
+  message: false
+  output: false
+
+toc: true
+toc-depth: 3
+number-sections: true
+
+editor: source
+---
+
+
+```{r}
+
+library(sf)
+library(gt)
+library(readxl)
+library(terra)
+library(tidyverse)
+library(tidyterra)
+library(ggspatial)
+library(ggpubr)
+library(shadowtext)
+library(RColorBrewer)
+library(ggrepel)
+library(patchwork)
+library(xml2)
+library(lwgeom)
+terraOptions(progress = 0)
+
+INPUT_DIR <- file.path("input")
+INPUT_SPA_DIR <- file.path("input/Spatial_data")
+OUTPUT_DIR <- file.path("output")
+OUTPUT_SPA_DIR <- file.path("output/Spatial_data")
+
+source("Actions/functions.R")
+# sum(file.info(terra::tmpFiles())$size) / 1e9
+
+# General base layers ----
+## State boundary
+STE <- st_read(file.path(INPUT_SPA_DIR, "STE_2021_AUST_SHP_GDA2020", "STE_2021_AUST_GDA2020.shp"))
+STE_WA <- STE %>% filter(STE_NAME21 == "Western Australia") %>% st_make_valid() %>% st_as_sf()
+
+# Define BBOX
+BBOX <- st_bbox(c(xmin = 119.2661, xmax = 129.1015, ymin = -21.33202, ymax = -13.58869), crs = st_crs(STE)) %>% st_as_sfc() %>% st_make_valid()
+
+# Study area boundary
+StudyArea_SF <- st_read(file.path(OUTPUT_DIR, "data", "Fitzroy2Coast_Aus_SEA_dsvl.gpkg"))
+
+# Study area Digital elevation model (DEM) for raster template
+DEM_SA <- rast(file.path(OUTPUT_SPA_DIR, "DEM_SA.tif"))
+DEM_SA_GdaMga <- if(file.exists(file.path(OUTPUT_SPA_DIR, "DEM_SA_GdaMga.tif"))) {
+  rast(file.path(OUTPUT_SPA_DIR, "DEM_SA_GdaMga.tif"))
+} else {
+  terra::project(DEM_SA, "EPSG:7851", method = "bilinear", filename = file.path(OUTPUT_SPA_DIR, "DEM_SA_GdaMga.tif"), overwrite = TRUE)
+}
+
+# Create raster template with same resolution and crs as DEM_SA but with BBOX extent
+BBOX_GDA_rast <- extend(DEM_SA, ext(vect(BBOX)))
+values(BBOX_GDA_rast) <- NA
+varnames(BBOX_GDA_rast) <- ""
+BBOX_GdaMga_rast <- terra::project(BBOX_GDA_rast, "EPSG:7851", threads = TRUE, method = "near")
+
+```
+
+# Overview 
+
+This is to estimate cost of support learning and sharing of Traditional Owner lived experience. This includes learning from Traditional Owners and local communities, sharing lived experiences, and supporting readiness to learn and unlearn as part of building a Living West Kimberley Blueprint. Main cost components include: (1) coordination and facilitation of engagement activities, (2) Traditional Owner and local community participation, (3) travel and accommodation, and (4) knowledge sharing and learning workshops. We assumed 1 engagement activity per year per region with a Healthy Country Plan (i.e. 6 HCPs: Bunuba, Gooniyandi, Mangala, Ngarrinyin, Nyikina, Walmajarri, and Warrwa nations).
+
+We acknowledge that the cost of engagement and knowledge sharing may vary depending on the specific context, location, and scale of the activities. The cost estimates provided here are based on available data and assumptions, and should be considered as indicative rather than definitive.
+
+# Estimate coordination and facilitation costs
+
+The coordination for engagement activities is assumed to be conducted by a project coordinator, involving two elders and six community members. The duration of pre-activity coordition work is assumed to be four weeks per activity, preparation by elders and community members is assumed to be two weeks per activity. 
+
+```{r}
+TimeHorizon_yr <- 30
+Nations_HCP_n <- 6
+
+# Wage rates for participants are based on
+# https://www.wa.gov.au/organisation/department-of-water-and-environmental-regulation/honorarium-payment-wa-aboriginal-climate-adaptation-project-consultations
+
+Workday_hr <- 7.5 # Working hours per day
+Rate_Wage1_Dhr <- 30 # Rate of wage for entry-level staff ($/h)
+Rate_Wage2_Dhr <- 45 # Rate of wage for experienced staff ($/h)
+Rate_Wage3_Dhr <- 65 # Rate of wage for highly experienced staff ($/h)
+
+Rate_Wage_Lead_Dhr <- 500/Workday_hr # Wage for Traditional Owner elders and community leaders ($/h)
+Rate_Wage_Part_Dhr <- 200/Workday_hr # Wage for community members and participants ($/h)
+
+Dura_PreA_Off_hr <- 20 * Workday_hr * Nations_HCP_n # Duration of pre-activity office work (h)
+
+Cost_PreA_Off_D <- Dura_PreA_Off_hr * Rate_Wage2_Dhr # Cost of pre-activity office work ($)
+
+PreA_Lead_n <- 2 * Nations_HCP_n # Number of elders and community leaders involved in pre-activity work
+
+PreA_Part_n <- 6 * Nations_HCP_n # Number of community members and participants involved in pre-activity work
+
+Dura_PreA_Lead_hr <- 10 * Workday_hr * PreA_Lead_n # Duration of pre-activity work by elders and community leaders (h)
+
+Dura_PreA_Part_hr <- 10 * Workday_hr * PreA_Part_n # Duration of pre-activity work by community members and participants (h)
+
+Cost_PreA_Lead_D <- Dura_PreA_Lead_hr * Rate_Wage_Lead_Dhr # Cost of pre-activity work by elders and community leaders ($)
+
+Cost_PreA_Part_D <- Dura_PreA_Part_hr * Rate_Wage_Part_Dhr # Cost of pre-activity work by community members and participants ($)
+
+```
+
+
+# Travel and accommodation costs
+We assumed that two engagement activities are conducted annually at each of the three major urban centres within the study area: Broome, Derby and Fitzroy Crossing. To provide an estimation of the travel effort required to support participation across geographically dispersed communities, each mapped Aboriginal settlement was assigned to the nearest urban centre based on minimum [road network](https://catalogue.data.wa.gov.au/dataset/mrwa-road-network) travel time, calculated using mapped road speed limits. For each engagement activity, participants were assumed to make a return trip between their settlement and the assigned urban centre. Travel time was valued at a flat labour rate of $30 person⁻¹ h⁻¹, while vehicle costs were estimated at $76 vehicle⁻¹ h⁻¹. Accommodation was assumed to cost $210 person⁻¹ night⁻¹, with three nights of accommodation required per participant per engagement activity. For each settlement, the total travel and accommodation cost for each engagement activity was calculated as:
+
+$$
+C_{\text{Travel, }ij} = \frac{2 \times D_{ij}}{V_{ij}} \left(R_{\text{Vehicle}} + R_{\text{Labour}} \right) + N_{\text{event}} \times N_{\text{nights}} \times R_{\text{Accommodation}}
+$$
+
+where $C_{\text{Travel, }ij}$ is the total travel and accommodation cost for settlement $i$ to urban centre $j$, $D_{ij}$ is the distance and $V_{ij}$ is the estimated vehicle speed between settlement $i$ and urban centre $j$, $R_{\text{Vehicle}}$ is the vehicle travel cost per hour adjusted for contingencies, $R_{\text{Labour}}$ is the labour cost per hour adjusted for overheads, $N_{\text{event}}$ is the number of engagement activities, $N_{\text{nights}}$ is the number of nights of accommodation, and $R_{\text{Accommodation}}$ is the accommodation cost per night.
+
+
+```{r}
+# 
+StudyArea_GdaMga <- StudyArea_SF %>% st_transform(crs = st_crs("EPSG:7851"))
+
+# aggregate from 1arcsec to approximately 1km resolution for travel time calculations
+BBOX_GDA_1km_rast <- aggregate(BBOX_GDA_rast, fun = "none", cores = 8, 
+                                  fact = 30)
+values(BBOX_GDA_1km_rast) <- 1
+SA_1km_grid <- crop(BBOX_GDA_1km_rast, vect(StudyArea_SF), mask = TRUE, snap = "out")
+
+# ---- Process road layers ----
+Road_speed_kmh <- c("State Road" = 100, "Local Road" = 40, "Miscellaneous Road" = 60)
+
+# Read and process road network data
+Roads_sf <- st_read(file.path(INPUT_SPA_DIR, "Road_Network", "Road_Network.shp")) %>% 
+  st_transform(crs = st_crs(BBOX)) %>% st_crop(BBOX) %>% 
+  filter(NETWORK_TY != "Proposed Road") %>% 
+  mutate(GeoType = st_geometry_type(.)) %>%
+  filter(GeoType == "LINESTRING")  %>% 
+  mutate(speed_kmh = ifelse(NETWORK_TY %in% names(Road_speed_kmh), 
+                            Road_speed_kmh[NETWORK_TY], 60))
+
+# Rasterize road network with speed values
+RoadSpeed_kmh_1km_rast <- rasterize(vect(Roads_sf), BBOX_GDA_1km_rast, field = "speed_kmh", background = NA, touches = TRUE)
+
+RoadTime_hrm_1km_rast <- 1 / (RoadSpeed_kmh_1km_rast * 1000)
+names(RoadTime_hrm_1km_rast) <- "speed_hrm"
+
+# Read in urban centre data and process for travel calculations
+WK_urb_sel_pt <- st_read(file.path(
+  INPUT_SPA_DIR, "UCL_2021_AUST_GDA94_SHP", "UCL_2021_AUST_GDA94.shp")) %>%
+  st_transform(st_crs(STE)) %>%
+  st_centroid(.) %>% st_intersection(BBOX) %>% 
+  dplyr::select(UCL_NAME21, geometry, SSR_CODE21, SSR_NAME21, SOS_CODE21, SOS_NAME21) %>%
+  distinct(UCL_NAME21, .keep_all = TRUE) %>% drop_na()
+
+WK_Murb_pt <- WK_urb_sel_pt %>% # Urban centres with approx 5000 or more pops within the study area.
+  st_intersection(StudyArea_SF) %>%
+  filter(SOS_NAME21 == "Other Urban")
+WK_Murb_pt_Names <- WK_Murb_pt$UCL_NAME21
+
+# Read in Aboriginal settlement data and process for travel calculations
+TO_Settlements <- st_read(file.path(INPUT_SPA_DIR, 
+                        "Aboriginal_Settlements_DPLH_011_WA_GDA2020_Public.gdb"),
+                    layer = "Aboriginal_Settlements_DPLH_011") %>%
+  st_transform(st_crs(WK_Murb_pt)) %>% st_crop(BBOX) %>% 
+  st_intersection(StudyArea_SF)
+
+Broome_pt <- WK_Murb_pt %>% filter(UCL_NAME21 == "Broome")
+Derby_pt <- WK_Murb_pt %>% filter(UCL_NAME21 == "Derby")
+Fitzroy_pt <- WK_Murb_pt %>% filter(UCL_NAME21 == "Fitzroy Crossing")
+
+Broome_friction <- RoadTime_hrm_1km_rast
+Derby_friction <- RoadTime_hrm_1km_rast
+Fitzroy_friction <- RoadTime_hrm_1km_rast
+
+Broome_cell <- cellFromXY(Broome_friction, crds(vect(Broome_pt)))
+Derby_cell <- cellFromXY(Derby_friction, crds(vect(Derby_pt)))
+Fitzroy_cell <- cellFromXY(Fitzroy_friction, crds(vect(Fitzroy_pt)))
+
+Broome_friction[Broome_cell] <- 0
+Derby_friction[Derby_cell] <- 0
+Fitzroy_friction[Fitzroy_cell] <- 0
+
+Dura_Broome_hr <- costDist(Broome_friction, target=0)
+Dura_Derby_hr <- costDist(Derby_friction, target=0)
+Dura_Fitzroy_hr <- costDist(Fitzroy_friction, target=0)
+Dura_Trav_hr <- min(c(Dura_Broome_hr, Dura_Derby_hr, Dura_Fitzroy_hr), na.rm = TRUE)
+Dura_Trav_hr <- aggregate(Dura_Trav_hr, fact = 2, fun = "mean", na.rm = TRUE, cores = 8)
+
+Dura_Broome_Sett_hr <- terra::extract(Dura_Broome_hr, vect(TO_Settlements), 
+    search_radius = 100000)
+Dura_Derby_Sett_hr <- terra::extract(Dura_Derby_hr, vect(TO_Settlements), 
+    search_radius = 100000)
+Dura_Fitzroy_Sett_hr <- terra::extract(Dura_Fitzroy_hr, vect(TO_Settlements), 
+    search_radius = 100000)
+
+Dura_Sett_hr <- data.frame(ID = 1:46,
+                        Broome_hr = Dura_Broome_Sett_hr[,2],
+                        Derby_hr = Dura_Derby_Sett_hr[,2],
+                        Fitzroy_hr = Dura_Fitzroy_Sett_hr[,2]) %>% 
+                mutate(Min_hr = pmin(Broome_hr, Derby_hr, Fitzroy_hr, na.rm = TRUE),
+                       Closest_urb = case_when(
+                         Min_hr == Broome_hr ~ "Broome",
+                         Min_hr == Derby_hr ~ "Derby",
+                         Min_hr == Fitzroy_hr ~ "Fitzroy Crossing",
+                         TRUE ~ NA_character_))
+```
+
+```{r}
+#| output: true
+#| label: fig-travel-time
+#| fig-cap: "Estimated minimum travel time (h) from Aboriginal settlements to the nearest urban centre (Broome, Derby, or Fitzroy Crossing) based on road-network travel time. The estimated travel time is used to calculate the total travel and accommodation costs for engagement activities."
+
+ggplot() +
+  geom_sf(data = STE_WA, fill = "grey70", color = NA) +
+  geom_spatraster(data = Dura_Trav_hr) +
+  scale_fill_viridis_c(option = "plasma", direction = -1, na.value = "transparent", name = "Travel\ntime (h)") +
+  geom_sf(data = StudyArea_SF, fill = NA, color = "black", linewidth = 0.5) +
+  geom_sf(data = WK_Murb_pt, color = "black", size = 2) +
+  geom_sf_text(data = WK_Murb_pt, aes(label = UCL_NAME21), size = 4, fontface = "bold", nudge_y = 0.1) +
+  theme_bw() +
+  coord_sf(xlim = st_bbox(StudyArea_SF)[c(1, 3)], ylim = st_bbox(StudyArea_SF)[c(2, 4)]) +
+  theme_bw()+
+  theme(legend.position = "right")+
+  theme(panel.background = element_rect(fill = "#C7E6F5"),
+        legend.background = element_rect(fill = NA, colour = NA),
+        legend.key = element_rect(fill = "white", colour = NA))
+
+```
+
+```{r}
+# ---- Travel-cost assumptions ----
+
+Rate_Grd_Trav_Veh_Dhr <- 76 # Ground travel vehicle cost per hour ($/h)
+Rate_Grd_Trav_Lbr_Dhr <- 60 # Ground travel labour cost per hour ($/h)
+Rate_Accom_Day <- 210 # Accommodation cost per night ($/night)
+Rate_LabourOverhead <- 0.30 # Overhead costs for labour
+Rate_FieldContingency <- 0.10 # Contingency costs for consumables, labour, and travelling costs
+Accom_Nights_n <- 3 # Number of nights of accommodation per engagement activity
+Event_n <- 2 # Number of engagement activities per year per urban centre
+
+Rate_Grd_Trav_adj_Dhr  <- Adjust_Field_Cost_fn(LabourCost = Rate_Grd_Trav_Lbr_Dhr,
+                                               TransportCost = Rate_Grd_Trav_Veh_Dhr,
+                                               ConsumablesCost = 0,
+                                               Rate_LbrOverhead = Rate_LabourOverhead,
+                                               Rate_FieldContin = Rate_FieldContingency)
+
+Cost_Travel_Sett_yr_D <- Dura_Sett_hr %>% 
+    mutate(Cost_yr = 2 * Min_hr * Rate_Grd_Trav_adj_Dhr + Event_n * Accom_Nights_n * Rate_Accom_Day)
+
+Cost_Travel_yr_D <- sum(Cost_Travel_Sett_yr_D$Cost_yr, na.rm = TRUE)
+
+```
+
+# Estimate knowledge sharing and learning workshop costs
+
+We assumed that each knowledge sharing and learning workshop would involve one project coordinator, one facilitator, two elders, and six community members. The duration of the workshop is assumed to be one day. We further assumed that each workshop would attract 40 further participants, who would be provided with lunch and refreshments. The cost of the workshop is calculated as follows:
+
+$$
+C_{\text{Workshop}} = 7.5 \left(R_{\text{Coordinator}} + R_{\text{Facilitator}} + N_{\text{Elders}} \times R_{\text{Elder}} + N_{\text{Community}} \times R_{\text{Community}}  \right) + N_{\text{Participants}} \times R_{\text{Lunch/Refreshments}} + C_{\text{Venue}} 
+$$
+
+where $C_{\text{Workshop}}$ is the total cost of the knowledge sharing and learning workshop, $R_{\text{Coordinator}}$ is the wage rate for the project coordinator, $R_{\text{Facilitator}}$ is the wage rate for the facilitator, $N_{\text{Elders}}$ is the number of elders involved in the workshop, $R_{\text{Elder}}$ is the wage rate for each elder, $N_{\text{Community}}$ is the number of community members involved in the workshop, $R_{\text{Community}}$ is the wage rate for each community member, $N_{\text{Participants}}$ is the number of participants attending the workshop, $R_{\text{Lunch/Refreshments}}$ is the cost of lunch and refreshments per participant, and $C_{\text{Venue}}$ is the cost of hiring a venue for the workshop.
+
+```{r}
+Rate_Coord_Dhr <- Rate_Wage2_Dhr # Wage rate for project coordinator ($/h)
+Rate_Facil_Dhr <- Rate_Wage2_Dhr # Wage rate for facilitator ($/h)
+
+Rate_refresh_Dpax <- 50 # Cost of lunch and refreshments per participant ($/pax)
+
+Cost_Workshop_Lbr_D <- Workday_hr * (Rate_Coord_Dhr + Rate_Facil_Dhr + 2 * Rate_Wage_Lead_Dhr + 6 * Rate_Wage_Part_Dhr) * Nations_HCP_n
+
+Cost_Workshop_Refresh_D <- 40 * Rate_refresh_Dpax * Nations_HCP_n
+Cost_Workshop_Venue_D <- 750 * 6 * Nations_HCP_n # Cost of hiring a venue for the workshop ($/day)
+
+```
+
+
+# Annualise and total combine costs 
+
+We estimated the total annual cost of supporting Traditional Owner engagement and knowledge sharing by summing the costs of coordination and facilitation, travel and accommodation, and knowledge sharing and learning workshops. The total cost over the 30-year time horizon was then estimated by multiplying the annual cost by the number of years. The total cost was also adjusted for inflation and discounted to present value using a discount rate of 4% per year. 
+
+```{r}
+Rate_Discount <- 0.04 # Discount rate per year
+PV_AnnuityFactor <- sum(1 / (1 + Rate_Discount)^(0:(TimeHorizon_yr - 1)))
+
+Cost_PreA_D <- Cost_PreA_Off_D + Cost_PreA_Lead_D + Cost_PreA_Part_D
+Cost_PreA_adj_D <- Adjust_Office_Cost_fn(LabourCost = Cost_PreA_D, Rate_LbrOverhead = Rate_LabourOverhead)
+
+Cost_Workshop_Lbr_adj_D <- Adjust_Office_Cost_fn(LabourCost = Cost_Workshop_Lbr_D, Rate_LbrOverhead = Rate_LabourOverhead)
+
+Cost_Workshop_RefVen_adj_D <- Adjust_Field_Cost_fn(LabourCost = 0, 
+                    TransportCost = 0, 
+                    ConsumablesCost = Cost_Workshop_Refresh_D + Cost_Workshop_Venue_D, 
+                    Rate_LbrOverhead = 0, 
+                    Rate_FieldContin = Rate_FieldContingency)
+Cost_Workshop_yr_adj_D <- sum(Cost_Workshop_Lbr_adj_D, Cost_Workshop_RefVen_adj_D)
+
+
+Cost_Engage_D_df <- data.frame(
+  Component = c("Coordination and facilitation", "Travel and accommodation", "Knowledge sharing and learning workshops"),
+  Cost_yr_D = c(Cost_PreA_adj_D, Cost_Travel_yr_D, Cost_Workshop_yr_adj_D)
+) %>% 
+  mutate(PV30yrCost_D = Cost_yr_D * PV_AnnuityFactor,
+         UD30yrCost = PV30yrCost_D * 30)
+Total_Cost_Engage_yr_D <- sum(Cost_Engage_D_df$Cost_yr_D)
+Total_Cost_Engage_PV30yr_D <- sum(Cost_Engage_D_df$PV30yrCost_D)
+Total_Cost_Engage_UD30yr_D <- sum(Cost_Engage_D_df$UD30yrCost)
+```
+
+The annualised total estimated costs of supporting Traditional Owner engagement and knowledge sharing is $`r format(Total_Cost_Engage_yr_D, big.mark = ",", scientific = FALSE)` per year, with a present value of $`r format(Total_Cost_Engage_PV30yr_D, big.mark = ",", scientific = FALSE)` over a 30-year time horizon. The undiscounted total cost over the same period is $`r format(Total_Cost_Engage_UD30yr_D, big.mark = ",", scientific = FALSE)`.
+
+
+```{r}
+#| output: true
+#| label: tbl-engage-cost
+#| tbl-cap: "Estimated costs of supporting Traditional Owner engagement and knowledge sharing over a 30-year time horizon, adjusted for inflation and discounted to present value using a discount rate of 4% per year."
+
+Cost_Engage_D_df %>% 
+    gt::gt() %>%
+    gt::cols_label(Component = "Cost component", Cost_yr_D = "Annual cost ($)", PV30yrCost_D = "Present value of 30-year cost ($)", UD30yrCost = "Undiscounted 30-year cost ($)") %>%
+    gt::fmt_number(columns = c(Cost_yr_D, PV30yrCost_D, UD30yrCost), decimals = 0, use_seps = TRUE) %>%
+    gt::tab_options(table.font.size = px(14), data_row.padding = px(4))
+```
