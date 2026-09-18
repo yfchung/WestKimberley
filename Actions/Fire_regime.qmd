@@ -25,6 +25,10 @@ format:
   docx:
     reference-doc: custom-reference.docx
 
+  gfm:
+    toc: true
+
+
 execute:
   echo: true
   warning: false
